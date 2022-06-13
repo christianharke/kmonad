@@ -69,7 +69,7 @@
           supportedCompilers));
 
       overlays.default = final: prev: {
-        kmonad = self.packages.${prev.system}.default;
+        kmonad = self.packages."x86_64-linux".default;
       };
 
       nixosModules.default = { ... }: {
