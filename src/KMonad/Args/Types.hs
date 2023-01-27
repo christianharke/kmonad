@@ -67,6 +67,7 @@ data DefButton
   | KTapNextRelease DefButton DefButton    -- ^ Do 2 things based on behavior
   | KTapHoldNextRelease Int DefButton DefButton (Maybe DefButton)
     -- ^ Like KTapNextRelease but with a timeout
+  | KTapNextPress DefButton DefButton      -- ^ Like KTapNextRelease but also hold on presses
   | KAroundNext DefButton                  -- ^ Surround a future button
   | KAroundNextSingle DefButton            -- ^ Surround a future button
   | KMultiTap [(Int, DefButton)] DefButton -- ^ Do things depending on tap-count
@@ -83,6 +84,7 @@ data DefButton
   | KCommand Text (Maybe Text)             -- ^ Execute a shell command on press, as well
                                            --   as possibly on release
   | KStickyKey Int DefButton               -- ^ Act as if a button is pressed for a period of time
+  | KBeforeAfterNext DefButton DefButton   -- ^ Surround a future button in a before and after tap
   | KTrans                                 -- ^ Transparent button that does nothing
   | KBlock                                 -- ^ Button that catches event
   deriving Show

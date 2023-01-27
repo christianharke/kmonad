@@ -42,6 +42,7 @@ module KMonad.Model.Button
   , aroundNext
   , aroundNextTimeout
   , aroundNextSingle
+  , beforeAfterNext
   , layerDelay
   , layerNext
   , tapHold
@@ -50,6 +51,7 @@ module KMonad.Model.Button
   , tapHoldNext
   , tapNextRelease
   , tapHoldNextRelease
+  , tapNextPress
   , tapMacro
   , tapMacroRelease
   , stickyKey
@@ -251,7 +253,7 @@ tapOn Release b = mkButton (pure ()) (tap b)
 tapHold :: Milliseconds -> Button -> Button -> Button
 tapHold ms t h = onPress $ withinHeld ms (matchMy Release)
   (press h)                     -- If we catch timeout before release
-  (const $ tap t *> pure Catch) -- If we catch release before timeout
+  (const $ tap t $> Catch) -- If we catch release before timeout
 
 -- | Create a 'Button' that performs a tap of 1 button if the next event is its
 -- own release, or else switches to holding some other button if the next event
@@ -260,19 +262,30 @@ tapNext :: Button -> Button -> Button
 tapNext t h = onPress $ hookF InputHook $ \e -> do
   p <- matchMy Release
   if p e
-    then tap t   *> pure Catch
-    else press h *> pure NoCatch
+    then tap t   $> Catch
+    else press h $> NoCatch
 
 -- | Like 'tapNext', except that after some interval it switches anyways
 tapHoldNext :: Milliseconds -> Button -> Button -> Maybe Button -> Button
 tapHoldNext ms t h mtb = onPress $ within ms (pure $ const True) onTimeout $ \tr -> do
   p <- matchMy Release
   if p $ tr^.event
-    then tap t   *> pure Catch
-    else press h *> pure NoCatch
+    then tap t   $> Catch
+    else press h $> NoCatch
   where
     onTimeout :: MonadK m =>  m ()
     onTimeout = press $ fromMaybe h mtb
+
+-- | Surround some future button with a before and after tap
+beforeAfterNext :: Button -> Button -> Button
+beforeAfterNext b a = onPress $ do
+  tap b
+  await isPress $ \e -> do
+    await (isReleaseOf $ e^.keycode) $ \_ -> do
+      tap a
+      pure NoCatch
+    pure NoCatch
+
 
 -- | Create a tap-hold style button that makes its decision based on the next
 -- detected release in the following manner:
@@ -298,19 +311,19 @@ tapNextRelease t h = onPress $ do
         -- we act as if we were held
         | isRel && (e^.keycode `elem` ks) -> doHold e
         -- Else, if it is a press, store the keycode and wait again
-        | not isRel                       -> go ((e^.keycode):ks) *> pure NoCatch
+        | not isRel                       -> go ((e^.keycode):ks) $> NoCatch
         -- Else, if it is a release of some button held before me, just ignore
-        | otherwise                       -> go ks *> pure NoCatch
+        | otherwise                       -> go ks $> NoCatch
 
     -- Behave like a tap is simple: tap the button `t` and release processing
     doTap :: MonadK m => m Catch
-    doTap = tap t *> hold False *> pure Catch
+    doTap = tap t *> hold False $> Catch
 
     -- Behave like a hold is not simple: first we release the processing hold,
     -- then we catch the release of ButtonX that triggered this action, and then
     -- we rethrow this release.
     doHold :: MonadK m => KeyEvent -> m Catch
-    doHold e = press h *> hold False *> inject e *> pure Catch
+    doHold e = press h *> hold False *> inject e $> Catch
 
 
 
@@ -342,19 +355,46 @@ tapHoldNextRelease ms t h mtb = onPress $ do
         -- If the next event is another release that was pressed after me
         | isRel && (e^.keycode `elem` ks) -> onRelOther e
         -- If the next event is a press, store and recurse
-        | not isRel -> go (ms' - r^.elapsed) (e^.keycode : ks) *> pure NoCatch
+        | not isRel -> go (ms' - r^.elapsed) (e^.keycode : ks) $> NoCatch
         -- If the next event is a release of some button pressed before me, recurse
-        | otherwise -> go (ms' - r^.elapsed) ks *> pure NoCatch
+        | otherwise -> go (ms' - r^.elapsed) ks $> NoCatch
 
     onTimeout :: MonadK m =>  m ()
     onTimeout = press (fromMaybe h mtb) *> hold False
 
     onRelSelf :: MonadK m => m Catch
-    onRelSelf = tap t *> hold False *> pure Catch
+    onRelSelf = tap t *> hold False $> Catch
 
     onRelOther :: MonadK m => KeyEvent -> m Catch
-    onRelOther e = press h *> hold False *> inject e *> pure Catch
+    onRelOther e = press h *> hold False *> inject e $> Catch
 
+-- | Create a button just like tap-release, but also trigger a hold on presses:
+-- 1. It is the release of this button: We are tapping
+-- 2. It is the press of some other button, we hold
+-- 3. It is the release of some other button, ignore.
+tapNextPress :: Button -> Button -> Button
+tapNextPress t h = onPress go
+  where
+    go :: MonadK m => m ()
+    go = hookF InputHook $ \e -> do
+      p <- matchMy Release
+      if
+        -- If the next event is my own release: we act as if we were tapped
+        | p e -> doTap
+        -- If the next event is a press: we act as if we were held
+        | isPress e -> doHold e
+        -- Else, if it is a release of some other button, just ignore
+        | otherwise -> go $> NoCatch
+
+    -- Behave like a tap
+    doTap :: MonadK m => m Catch
+    doTap = tap t $> Catch
+
+    -- Behave like a hold:
+    -- We catch the event of ButtonX that triggered this action, and then
+    -- we rethrow this event after holding.
+    doHold :: MonadK m => KeyEvent -> m Catch
+    doHold e = press h *> inject e $> Catch
 
 -- | Create a 'Button' that contains a number of delays and 'Button's. As long
 -- as the next press is registered before the timeout, the multiTap descends
@@ -400,7 +440,7 @@ tapMacro :: [Button] -> Button
 tapMacro bs = onPress $ go bs
   where
     go []      = pure ()
-    go (b:[])  = press b
+    go [b]     = press b
     go (b:rst) = tap b >> go rst
 
 -- | Create a 'Button' that performs a series of taps on press,
@@ -409,7 +449,7 @@ tapMacroRelease :: [Button] -> Button
 tapMacroRelease bs = onPress $ go bs
   where
     go []      = pure ()
-    go (b:[])  = awaitMy Release $ tap b >> pure Catch
+    go [b]     = awaitMy Release $ tap b >> pure Catch
     go (b:rst) = tap b >> go rst
 
 -- | Switch to a layer for a period of time, then automatically switch back
@@ -425,13 +465,13 @@ layerDelay d t = onPress $ do
 layerNext :: LayerTag -> Button
 layerNext t = onPress $ do
   layerOp (PushLayer t)
-  await isPress (\_ -> whenDone (layerOp $ PopLayer t) *> pure NoCatch)
+  await isPress (\_ -> whenDone (layerOp $ PopLayer t) $> NoCatch)
 
 -- | Make a button into a sticky-key, i.e. a key that acts like it is
 -- pressed for the button after it if that button was pressed in the
 -- given timeframe.
 stickyKey :: Milliseconds -> Button -> Button
-stickyKey ms b = onPress $ go
+stickyKey ms b = onPress go
  where
   go :: MonadK m => m ()
   go = hookF InputHook $ \e -> do
@@ -451,7 +491,7 @@ stickyKey ms b = onPress $ go
     within ms
            (pure isPress)  -- presses definitely happen after us
            (pure ())
-           (\t -> (runAction $ b^.pressAction)
+           (\t -> runAction (b^.pressAction)
                *> inject (t^.event)
                *> after 3 (runAction $ b^.releaseAction)
                $> Catch)

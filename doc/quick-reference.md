@@ -271,6 +271,13 @@ to be the most comfortable.
   (defalias tnr (tap-next-release a sft))
   ```
 
++ `tap-next-press`: like `tap-next` but decide whether to tap or hold
+  based on whether another key is pressed before this one is released.
+
+  ```clojure
+  (defalias tnp (tap-next-press a sft))
+  ```
+
 + `tap-hold-next-release`: like `tap-next-release` but with an
   additional timeout. This is just like `tap-next-release`, but with
   `tap-next` swapped out for `tap-next-release`.
@@ -301,7 +308,7 @@ just collections of keys.
   thus not be used as one! It only serves to define where the different
   keys are and what kind of layout kmonad is initially dealing with.
 
-  For example, an ISO 60% keyboard may be represented as:
+  For example, an ANSI 60% keyboard may be represented as:
 
   ```
   (defsrc

@@ -58,6 +58,18 @@ because you installed it yourself or because you are using NixOS, you can build
 nix-build nix
 ```
 
+On MacOS, you'll have to use something like the following to get nix to pull in
+the karabiner submodule:
+
+```shell
+nix build "./nix?submodules=1"
+```
+
+If you want to pull in kmonad as a flake input for configuring a darwin system,
+you may find it necessary to use a reference like:
+`git+https://github.com/kmonad/kmonad?submodules=1&dir=nix` instead of
+`github:...`.
+
 Another option with `nix` is to use the `nix-shell` to ensure you have the
 correct environment to run `stack` in. You can enter the development environment
 using:
@@ -65,7 +77,6 @@ using:
 ```shell
 nix-shell nix/shell.nix
 ```
-
 
 Note: we do also have to compile a little bit of C-code, so make sure `gcc` is
 installed as well.
@@ -114,6 +125,14 @@ Do this as the build step (the first one) in the previous instructions:
 docker build -t kmonad-builder github.com/kmonad/kmonad.git
 ```
 
+#### Podman
+If you are using Podman you must disable labels when bind-mounting a directory to copy the KMonad binary to.
+
+In the steps above, the only difference is including `--security-opt label=disable` in the second command (`docker run`). The full command will appear as below:
+```shell
+podman run --rm -it -v ${PWD}:/host/ --security-opt label=disable kmonad-builder bash -c 'cp -vp /root/.local/bin/kmonad /host/'
+```
+
 ### Windows environment
 
 I have little experience with Haskell under windows, but I managed to compile
@@ -126,6 +145,9 @@ You also can install MSYS2, Haskell and stack via [scoop](https://scoop.sh/).
 Simply run these commands in Windows PowerShell:
 
 ```posh
+   # set required privileges to run scripts (required for scoop installer)
+   Set-ExecutionPolicy RemoteSigned -scope CurrentUser
+
    # install scoop (no admin rights required)
    iwr -useb get.scoop.sh | iex
 
@@ -141,6 +163,12 @@ Simply run these commands in Windows PowerShell:
    stack build
 
    # the new kmonad.exe will be in .\.stack-work\install\xxxxxxx\bin\
+   
+   # install kmonad.exe (copies kmonad.exe to %APPDATA%\local\bin\)
+   stack install
+   
+   # run kmonad.exe
+   kmonad.exe .\path\to\config.kbd
 ```
 
 ### macOS
